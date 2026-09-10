@@ -10,11 +10,15 @@ def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            # 兼容旧版本：如果以前的 allowed_users 是列表，将其清空转换为字典
+            # 兼容旧版本数据结构
             if isinstance(data.get("allowed_users"), list):
                 data["allowed_users"] = {}
+            # 如果是旧数据文件没有管理员密码字段，初始化默认密码
+            if "admin_pwd" not in data:
+                data["admin_pwd"] = "uestc2204"
             return data
-    return {"roles": {}, "allowed_users": {}, "user_progress": {}}
+    # 第一次运行时的默认数据结构，默认管理员密码设为 uestc2204
+    return {"roles": {}, "allowed_users": {}, "user_progress": {}, "admin_pwd": "uestc2204"}
 
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
@@ -30,27 +34,26 @@ if "current_user" not in st.session_state:
 # ================= 模块 1：用户交互端 =================
 st.title("🗳️ 班委线上竞选系统")
 
-# 1. 登录拦截（加入手机号密码验证）
+# 1. 登录拦截
 if not st.session_state.current_user:
     st.markdown("请进行身份核验进入投票环节。")
     
     with st.form("login_form"):
         sid = st.text_input("请输入学号（账号）：", placeholder="例如: 20220001")
-        pwd = st.text_input("请输入手机号（密码）：", type="password", placeholder="请输入登记的手机号码")
+        pwd = st.text_input("请输入密码（默认手机号）：", type="password", placeholder="请输入登记的手机号码或你修改后的密码")
         submit_login = st.form_submit_button("验证身份并登录")
         
         if submit_login:
             if not sid or not pwd:
-                st.warning("学号和手机号不能为空。")
+                st.warning("学号和密码不能为空。")
             elif not data["allowed_users"]:
                 st.info("🕒 管理员尚未导入班级名单，暂不支持登录。")
             elif sid not in data["allowed_users"]:
                 st.error("⚠️ 该学号不在本次投票名单中！")
             elif str(data["allowed_users"][sid]) != str(pwd).strip():
-                st.error("❌ 密码（手机号）验证失败，请检查是否输入正确。")
+                st.error("❌ 密码验证失败，请检查是否输入正确。")
             else:
                 st.session_state.current_user = sid
-                # 记录新用户的进度
                 if sid not in data["user_progress"]:
                     data["user_progress"][sid] = []
                     save_data(data)
@@ -58,6 +61,20 @@ if not st.session_state.current_user:
 else:
     sid = st.session_state.current_user
     st.success(f"欢迎你，学号：{sid}！")
+    
+    # === 新增功能：用户自行修改密码 ===
+    with st.expander("🔐 账号安全：修改我的密码"):
+        new_pwd = st.text_input("请输入新密码：", type="password", key="user_new_pwd")
+        confirm_pwd = st.text_input("请再次确认新密码：", type="password", key="user_confirm_pwd")
+        if st.button("确认修改个人密码"):
+            if new_pwd and new_pwd == confirm_pwd:
+                data["allowed_users"][sid] = new_pwd
+                save_data(data)
+                st.success("✅ 密码修改成功！下次登录请使用新密码。")
+            elif new_pwd != confirm_pwd:
+                st.error("❌ 两次输入的密码不一致！")
+            else:
+                st.warning("密码不能为空！")
     
     # 2. 核心逻辑：计算该用户未投票的职位
     all_roles = list(data["roles"].keys())
@@ -70,7 +87,6 @@ else:
         st.info("🕒 管理员尚未配置竞选岗位，请稍后再来...")
     
     elif not unvoted_roles:
-        # 所有环节完成
         st.balloons()
         st.success("🎉 你已完成所有职位的投票！感谢参与。")
         if st.button("退出登录"):
@@ -81,19 +97,16 @@ else:
         # 3. 单环节展示与投票
         current_role = unvoted_roles[0]
         
-        # 判断是否刚刚投完票，需要展示图表
         if "just_voted_role" in st.session_state and st.session_state.just_voted_role == current_role:
             st.subheader(f"📊 【{current_role}】实时票数概况")
             st.bar_chart(data["roles"][current_role])
             
-            # 点击按钮后，真正将进度向后推进一步
             if st.button("✅ 继续进入下一环节"):
                 data["user_progress"][sid].append(current_role)
                 save_data(data)
                 del st.session_state.just_voted_role
                 st.rerun()
         else:
-            # 正常的投票界面
             st.subheader(f"当前环节：竞选【{current_role}】")
             candidates = list(data["roles"][current_role].keys())
             
@@ -117,9 +130,11 @@ else:
 # ================= 模块 2：管理员超级后台 =================
 st.markdown("<br><br><br><br>", unsafe_allow_html=True) 
 with st.expander("⚙️ 管理员后台面板"):
-    admin_pwd = st.text_input("请输入管理员密码", type="password", key="pwd")
-    if admin_pwd == "uestc2204":
-        tab1, tab2, tab3 = st.tabs(["📝 职位与候选人", "📂 导入 Excel 名单", "💾 数据备份与图表"])
+    admin_pwd_input = st.text_input("请输入管理员密码", type="password", key="admin_login_pwd")
+    
+    # 验证动态存储的管理员密码
+    if admin_pwd_input == data.get("admin_pwd", "uestc2204"):
+        tab1, tab2, tab3, tab4 = st.tabs(["📝 职位候选", "📂 导入名单", "💾 数据备份", "🔒 系统安全"])
         
         with tab1:
             st.markdown("#### 添加新职位")
@@ -144,19 +159,13 @@ with st.expander("⚙️ 管理员后台面板"):
                         
         with tab2:
             st.markdown("#### 📁 一键导入学号与密码")
-            st.info("请确保你的 Excel 文件中包含名为 **学号** 和 **手机号** 的两列（表头名字必须一致）。")
-            
+            st.info("请确保 Excel 中包含名为 **学号** 和 **手机号** 的两列。")
             uploaded_file = st.file_uploader("上传班级花名册 (.xlsx / .xls)", type=["xlsx", "xls"])
-            
             if uploaded_file is not None:
                 if st.button("开始解析并导入"):
                     try:
-                        # 读取 Excel
                         df = pd.read_excel(uploaded_file)
-                        
-                        # 检查列名是否存在
                         if "学号" in df.columns and "手机号" in df.columns:
-                            # 预处理数据：去除空值，将数字转换为字符串，并去掉可能附带的 '.0'
                             df = df.dropna(subset=['学号', '手机号'])
                             df['学号'] = df['学号'].astype(str).apply(lambda x: x.split('.')[0] if x.endswith('.0') else x).str.strip()
                             df['手机号'] = df['手机号'].astype(str).apply(lambda x: x.split('.')[0] if x.endswith('.0') else x).str.strip()
@@ -171,13 +180,10 @@ with st.expander("⚙️ 管理员后台面板"):
                             data["allowed_users"] = new_users
                             save_data(data)
                             st.success(f"✅ 成功导入 {len(new_users)} 位同学的账号信息！")
-                            st.balloons()
                         else:
                             st.error("❌ 格式错误：Excel 中必须包含名为『学号』和『手机号』的列头！")
                     except Exception as e:
                         st.error(f"解析文件时发生错误: {e}")
-            
-            # 显示当前系统内的账号数
             st.caption(f"当前系统已录入账号数：{len(data.get('allowed_users', {}))} 人")
             
         with tab3:
@@ -188,7 +194,6 @@ with st.expander("⚙️ 管理员后台面板"):
                     st.bar_chart(c)
                 else:
                     st.write("无")
-            
             st.markdown("---")
             st.markdown("#### 🚨 数据安全备份")
             with open(DATA_FILE, "rb") as file:
@@ -198,5 +203,19 @@ with st.expander("⚙️ 管理员后台面板"):
                     file_name="class_voting_data_backup.json",
                     mime="application/json"
                 )
-    elif admin_pwd:
+                
+        # === 新增功能：管理员云端修改控制密码 ===
+        with tab4:
+            st.markdown("#### 🔑 修改超级管理员密码")
+            st.warning("⚠️ 修改后请务必牢记新密码！如果遗忘，将无法进入后台管理界面。")
+            new_admin_pwd = st.text_input("输入新的管理员密码", type="password", key="new_admin")
+            if st.button("确认修改管理员密码"):
+                if new_admin_pwd:
+                    data["admin_pwd"] = new_admin_pwd
+                    save_data(data)
+                    st.success("✅ 管理员密码修改成功！下次进入后台请使用新密码。")
+                else:
+                    st.error("密码不能为空！")
+                    
+    elif admin_pwd_input:
         st.error("密码错误")
