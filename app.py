@@ -86,7 +86,6 @@ elif st.session_state.page_mode == "student":
         
         all_roles = list(data["roles"].keys())
         
-        # 撤销与修改逻辑 (兼容弃权票撤回)
         st.markdown("### 📝 我的选票")
         for role in all_roles:
             if role in data["user_progress"].get(sid, []):
@@ -142,7 +141,7 @@ elif st.session_state.page_mode == "guide":
         )
         st.markdown("---")
         
-        # --- 现场展示大屏 (Altair 高级图表 + 弃权动态统计) ---
+        # --- 现场展示大屏 ---
         if admin_mode == "📺 大屏实时监控 (开启1秒刷新)":
             st_autorefresh(interval=1000, key="datarefresh")
             
@@ -163,10 +162,7 @@ elif st.session_state.page_mode == "guide":
                         cands_list.append("⭕ 弃权")
                         votes_list.append(abstain_count)
 
-                    df = pd.DataFrame({
-                        "姓名": cands_list, 
-                        "票数": votes_list
-                    })
+                    df = pd.DataFrame({"姓名": cands_list, "票数": votes_list})
                     
                     base = alt.Chart(df).encode(
                         x=alt.X('姓名:N', title='', axis=alt.Axis(labelAngle=0, labelFontSize=14)),
@@ -180,8 +176,7 @@ elif st.session_state.page_mode == "guide":
                     )
                     
                     bar = base.mark_bar(
-                        cornerRadiusTopLeft=5, 
-                        cornerRadiusTopRight=5
+                        cornerRadiusTopLeft=5, cornerRadiusTopRight=5
                     ).encode(color=color_condition)
                     
                     text = base.mark_text(
@@ -274,38 +269,47 @@ elif st.session_state.page_mode == "guide":
                 single_pwd = c3.text_input("密码", key="sp")
                 if st.button("保存单个账号"):
                     if single_name and single_account and single_pwd:
-                        # 【覆盖更新机制】直接根据账号写入，如果是已有账号会自动覆盖旧名字和旧密码
                         data["allowed_users"][single_account] = {"name": single_name, "pwd": single_pwd}
                         save_data(data)
                         st.success("已保存/更新成功！")
-                st.caption("💡 提示：如需修改已有账号的名字或密码，只需在此处填入相同的账号，输入新名字/密码后保存即可覆盖。")
                         
                 st.markdown("#### 📁 Excel 批量导入 (表头: 名字, 账号, 密码)")
                 uploaded_file = st.file_uploader("上传 .xlsx", type=["xlsx", "xls"])
-                if uploaded_file is not None and st.button("开始导入"):
-                    df = pd.read_excel(uploaded_file)
-                    if all(col in df.columns for col in ["名字", "账号", "密码"]):
-                        df = df.dropna(subset=['名字', '账号', '密码'])
-                        for _, row in df.iterrows():
-                            acc = str(row["账号"]).split('.')[0].strip()
-                            data["allowed_users"][acc] = {
-                                "name": str(row["名字"]).strip(),
-                                "pwd": str(row["密码"]).split('.')[0].strip()
-                            }
-                        save_data(data)
-                        st.success("批量导入成功！")
-                        st.rerun()
-                        
-                # ===== 全新增加：查看与删除账号区域 =====
+                
+                # ==== 【修复点】：加入了 try...except 报错处理和清理表头空格的逻辑 ====
+                if uploaded_file is not None:
+                    if st.button("开始解析并导入"):
+                        try:
+                            df = pd.read_excel(uploaded_file)
+                            # 清理可能存在的表头隐藏空格
+                            df.columns = df.columns.str.strip()
+                            
+                            if all(col in df.columns for col in ["名字", "账号", "密码"]):
+                                df = df.dropna(subset=['名字', '账号', '密码'])
+                                count = 0
+                                for _, row in df.iterrows():
+                                    acc = str(row["账号"]).split('.')[0].strip()
+                                    if acc and acc != "nan":
+                                        data["allowed_users"][acc] = {
+                                            "name": str(row["名字"]).strip(),
+                                            "pwd": str(row["密码"]).split('.')[0].strip()
+                                        }
+                                        count += 1
+                                save_data(data)
+                                st.success(f"✅ 成功导入 {count} 条名单数据！")
+                                # 移除 st.rerun 以便你能直接看到下方的成功提示
+                            else:
+                                st.error(f"❌ 导入失败：缺少必需的表头。你的表头是：{list(df.columns)}，必须精确包含『名字』、『账号』、『密码』。")
+                        except Exception as e:
+                            st.error(f"⚠️ 读取文件出错：{e}。请检查 requirements.txt 中是否已包含 openpyxl。")
+                
                 st.markdown("---")
                 st.markdown("#### 👀 查看与管理已录入账号")
                 if data.get("allowed_users"):
                     st.caption(f"当前共录入 {len(data['allowed_users'])} 人")
-                    # 生成供显示的表格数据
                     user_list = [{"账号": k, "名字": v["name"], "密码": v["pwd"]} for k, v in data["allowed_users"].items()]
                     st.dataframe(pd.DataFrame(user_list), use_container_width=True, height=200)
                     
-                    # 删除指定账号
                     del_col1, del_col2 = st.columns([2, 1])
                     with del_col1:
                         del_acc = st.text_input("输入要彻底删除的【账号】", key="del_acc_input")
@@ -316,10 +320,10 @@ elif st.session_state.page_mode == "guide":
                             if del_acc in data["allowed_users"]:
                                 data["allowed_users"].pop(del_acc)
                                 save_data(data)
-                                st.success(f"账号 {del_acc} 已从系统中移除！")
+                                st.success(f"账号 {del_acc} 已被移除！")
                                 st.rerun()
                             elif del_acc:
-                                st.warning("未找到该账号，请检查输入是否正确。")
+                                st.warning("未找到该账号，请检查输入。")
                 else:
                     st.info("当前暂未录入任何账号数据。")
             
