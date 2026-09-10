@@ -111,9 +111,16 @@ elif st.session_state.page_mode == "student":
             candidates = list(data["roles"][current_role].keys())
             if candidates:
                 with st.form(f"vote_{current_role}"):
-                    chosen = st.radio("请选择：", candidates)
+                    # 【核心修改 1】：在选项最后自动加上“弃权”
+                    options = candidates + ["弃权 (不投票给任何人)"]
+                    chosen = st.radio("请选择：", options)
+                    
                     if st.form_submit_button("确认提交"):
-                        data["roles"][current_role][chosen] += 1
+                        # 【核心修改 2】：如果是弃权，不增加任何候选人的票数
+                        if chosen != "弃权 (不投票给任何人)":
+                            data["roles"][current_role][chosen] += 1
+                        
+                        # 正常推进进度并记录用户的选择
                         data["user_progress"][sid].append(current_role)
                         data["user_choices"][sid][current_role] = chosen
                         save_data(data)
@@ -140,38 +147,53 @@ elif st.session_state.page_mode == "guide":
         st.markdown("---")
         
         # --- 现场展示大屏 ---
-        if admin_mode == "📺 大屏实时监控 (开启1秒刷新)":
-            st_autorefresh(interval=1000, key="datarefresh")
-            
-            if not data["roles"]:
-                st.info("尚未配置职位数据，请切换到【后台配置】添加。")
-            for role, candidates in data["roles"].items():
+        for role, candidates in data["roles"].items():
                 st.markdown(f"#### 🏆 {role}")
                 if candidates:
-                    # 1. 将数据转为标准的 Pandas 表格
+                    # 1. 获取候选人名单与票数
+                    cands_list = list(candidates.keys())
+                    votes_list = list(candidates.values())
+                    
+                    # 2. 【核心修改 3】：动态统计该职位的弃权票数
+                    abstain_count = sum(
+                        1 for user_choices in data.get("user_choices", {}).values() 
+                        if user_choices.get(role) == "弃权 (不投票给任何人)"
+                    )
+                    
+                    # 如果有人弃权，就把弃权票单独加到图表最后
+                    if abstain_count > 0:
+                        cands_list.append("⭕ 弃权")
+                        votes_list.append(abstain_count)
+
+                    # 3. 生成表格并画图
                     df = pd.DataFrame({
-                        "姓名": list(candidates.keys()), 
-                        "票数": list(candidates.values())
+                        "姓名": cands_list, 
+                        "票数": votes_list
                     })
                     
-                    # 2. 构建基础图表框架 (锁定Y轴最小值为0，强制步长为1)
                     base = alt.Chart(df).encode(
                         x=alt.X('姓名:N', title='', axis=alt.Axis(labelAngle=0, labelFontSize=14)),
                         y=alt.Y('票数:Q', title='', axis=alt.Axis(tickMinStep=1, labelFontSize=12), scale=alt.Scale(domainMin=0))
                     ).properties(height=250)
                     
-                    # 3. 绘制圆角柱状图
-                    bar = base.mark_bar(
-                        color='#4C78A8', 
-                        cornerRadiusTopLeft=5, 
-                        cornerRadiusTopRight=5
+                    # 用颜色区分：弃权票显示为灰色，候选人显示为蓝色
+                    color_condition = alt.condition(
+                        alt.datum['姓名'] == '⭕ 弃权',
+                        alt.value('#B0B0B0'),  # 弃权的灰色
+                        alt.value('#4C78A8')   # 正常的蓝色
                     )
                     
-                    # 4. 在柱子上叠加粗体数值
+                    bar = base.mark_bar(
+                        cornerRadiusTopLeft=5, 
+                        cornerRadiusTopRight=5
+                    ).encode(
+                        color=color_condition
+                    )
+                    
                     text = base.mark_text(
                         align='center',
                         baseline='bottom',
-                        dy=-5,  # 将数字向上偏移一点
+                        dy=-5,
                         fontSize=18,
                         fontWeight='bold',
                         color='#333333'
@@ -179,7 +201,6 @@ elif st.session_state.page_mode == "guide":
                         text='票数:Q'
                     )
                     
-                    # 5. 合并渲染图表
                     st.altair_chart(bar + text, use_container_width=True)
                 else:
                     st.write("暂无候选人")
