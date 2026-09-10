@@ -274,9 +274,11 @@ elif st.session_state.page_mode == "guide":
                 single_pwd = c3.text_input("密码", key="sp")
                 if st.button("保存单个账号"):
                     if single_name and single_account and single_pwd:
+                        # 【覆盖更新机制】直接根据账号写入，如果是已有账号会自动覆盖旧名字和旧密码
                         data["allowed_users"][single_account] = {"name": single_name, "pwd": single_pwd}
                         save_data(data)
-                        st.success("已保存！")
+                        st.success("已保存/更新成功！")
+                st.caption("💡 提示：如需修改已有账号的名字或密码，只需在此处填入相同的账号，输入新名字/密码后保存即可覆盖。")
                         
                 st.markdown("#### 📁 Excel 批量导入 (表头: 名字, 账号, 密码)")
                 uploaded_file = st.file_uploader("上传 .xlsx", type=["xlsx", "xls"])
@@ -293,6 +295,33 @@ elif st.session_state.page_mode == "guide":
                         save_data(data)
                         st.success("批量导入成功！")
                         st.rerun()
+                        
+                # ===== 全新增加：查看与删除账号区域 =====
+                st.markdown("---")
+                st.markdown("#### 👀 查看与管理已录入账号")
+                if data.get("allowed_users"):
+                    st.caption(f"当前共录入 {len(data['allowed_users'])} 人")
+                    # 生成供显示的表格数据
+                    user_list = [{"账号": k, "名字": v["name"], "密码": v["pwd"]} for k, v in data["allowed_users"].items()]
+                    st.dataframe(pd.DataFrame(user_list), use_container_width=True, height=200)
+                    
+                    # 删除指定账号
+                    del_col1, del_col2 = st.columns([2, 1])
+                    with del_col1:
+                        del_acc = st.text_input("输入要彻底删除的【账号】", key="del_acc_input")
+                    with del_col2:
+                        st.write("")
+                        st.write("")
+                        if st.button("🗑️ 删除账号"):
+                            if del_acc in data["allowed_users"]:
+                                data["allowed_users"].pop(del_acc)
+                                save_data(data)
+                                st.success(f"账号 {del_acc} 已从系统中移除！")
+                                st.rerun()
+                            elif del_acc:
+                                st.warning("未找到该账号，请检查输入是否正确。")
+                else:
+                    st.info("当前暂未录入任何账号数据。")
             
             with sub_t3:
                 st.markdown("#### 🚨 数据下载存档")
