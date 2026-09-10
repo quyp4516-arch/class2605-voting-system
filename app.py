@@ -11,7 +11,6 @@ def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            # 数据结构兼容与升级
             if "user_choices" not in data:
                 data["user_choices"] = {} 
             for k, v in list(data.get("allowed_users", {}).items()):
@@ -86,7 +85,6 @@ elif st.session_state.page_mode == "student":
         
         all_roles = list(data["roles"].keys())
         
-        # 撤销与修改逻辑
         st.markdown("### 📝 我的选票")
         for role in all_roles:
             if role in data["user_progress"].get(sid, []):
@@ -133,7 +131,6 @@ elif st.session_state.page_mode == "guide":
     else:
         st.title("👨‍🏫 管理中心")
         
-        # 【核心修复】用单选按钮替代 tabs，彻底隔离刷新机制与配置机制
         admin_mode = st.radio(
             "请选择操作模式：", 
             ["📺 大屏实时监控 (开启1秒刷新)", "⚙️ 后台完整配置 (停止刷新，安全操作)"], 
@@ -141,7 +138,7 @@ elif st.session_state.page_mode == "guide":
         )
         st.markdown("---")
         
-        # --- 现场展示大屏 (仅在此模式下激活自动刷新) ---
+        # --- 现场展示大屏 ---
         if admin_mode == "📺 大屏实时监控 (开启1秒刷新)":
             st_autorefresh(interval=1000, key="datarefresh")
             
@@ -154,30 +151,82 @@ elif st.session_state.page_mode == "guide":
                 else:
                     st.write("暂无候选人")
                     
-        # --- 完整恢复的配置后台 (此模式下无刷新，可正常输入) ---
+        # --- 完整恢复的配置后台 ---
         elif admin_mode == "⚙️ 后台完整配置 (停止刷新，安全操作)":
             sub_t1, sub_t2, sub_t3, sub_t4 = st.tabs(["📝 职位与人员", "📂 名单管理", "💾 备份导出", "🔒 密码修改"])
             
             with sub_t1:
-                st.markdown("#### 1. 新增职位")
-                new_role = st.text_input("职位名称 (如: 班长)", key="new_role_input")
-                if st.button("新建职位"):
-                    if new_role and new_role not in data["roles"]:
-                        data["roles"][new_role] = {}
-                        save_data(data)
-                        st.success(f"职位【{new_role}】添加成功！")
-                        st.rerun()
-                        
-                st.markdown("#### 2. 添加候选人")
-                if data["roles"]:
-                    target_role = st.selectbox("选择职位", list(data["roles"].keys()))
-                    new_cand = st.text_input("姓名", key="new_cand_input")
-                    if st.button("添加候选人"):
-                        if new_cand and new_cand not in data["roles"][target_role]:
-                            data["roles"][target_role][new_cand] = 0
+                st.markdown("#### 1. 新增数据")
+                col_add1, col_add2 = st.columns(2)
+                with col_add1:
+                    new_role = st.text_input("新增职位名称", key="new_role_input")
+                    if st.button("新建职位"):
+                        if new_role and new_role not in data["roles"]:
+                            data["roles"][new_role] = {}
                             save_data(data)
-                            st.success(f"【{new_cand}】已加入候选名单！")
+                            st.success(f"职位【{new_role}】添加成功！")
                             st.rerun()
+                with col_add2:
+                    if data["roles"]:
+                        target_role = st.selectbox("选择要添加候选人的职位", list(data["roles"].keys()), key="target_role_add")
+                        new_cand = st.text_input("新增候选人姓名", key="new_cand_input")
+                        if st.button("添加候选人"):
+                            if new_cand and new_cand not in data["roles"][target_role]:
+                                data["roles"][target_role][new_cand] = 0
+                                save_data(data)
+                                st.success(f"【{new_cand}】已加入候选名单！")
+                                st.rerun()
+
+                st.markdown("---")
+                st.markdown("#### 2. ✏️ 修改与删除现有数据")
+                if data["roles"]:
+                    edit_role = st.selectbox("选择需要管理的职位：", list(data["roles"].keys()), key="edit_role")
+                    
+                    # 职位级别的修改与删除
+                    col_r1, col_r2 = st.columns(2)
+                    with col_r1:
+                        rename_role = st.text_input(f"重命名【{edit_role}】为：", key="rename_role_input")
+                        if st.button("确认重命名职位"):
+                            if rename_role and rename_role not in data["roles"]:
+                                # 转移数据并删除旧名字，保留原有票数
+                                data["roles"][rename_role] = data["roles"].pop(edit_role)
+                                save_data(data)
+                                st.success("职位重命名成功！")
+                                st.rerun()
+                    with col_r2:
+                        st.write("") 
+                        st.write("")
+                        if st.button(f"🗑️ 彻底删除【{edit_role}】职位", type="primary"):
+                            data["roles"].pop(edit_role)
+                            save_data(data)
+                            st.success("职位已删除！")
+                            st.rerun()
+                            
+                    # 候选人级别的修改与删除
+                    candidates_list = list(data["roles"].get(edit_role, {}).keys())
+                    if candidates_list:
+                        st.markdown(f"**管理【{edit_role}】的候选人：**")
+                        edit_cand = st.selectbox("选择要管理的候选人：", candidates_list, key="edit_cand")
+                        
+                        col_c1, col_c2 = st.columns(2)
+                        with col_c1:
+                            rename_cand = st.text_input(f"重命名【{edit_cand}】为：", key="rename_cand_input")
+                            if st.button("确认重命名候选人"):
+                                if rename_cand and rename_cand not in data["roles"][edit_role]:
+                                    # 转移票数
+                                    votes = data["roles"][edit_role].pop(edit_cand)
+                                    data["roles"][edit_role][rename_cand] = votes
+                                    save_data(data)
+                                    st.success("候选人重命名成功！")
+                                    st.rerun()
+                        with col_c2:
+                            st.write("")
+                            st.write("")
+                            if st.button(f"🗑️ 删除候选人【{edit_cand}】"):
+                                data["roles"][edit_role].pop(edit_cand)
+                                save_data(data)
+                                st.success("候选人已删除！")
+                                st.rerun()
                             
             with sub_t2:
                 st.markdown("#### 👤 手动添加单人")
