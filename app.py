@@ -38,7 +38,7 @@ if "guide_logged_in" not in st.session_state:
 
 # ================= 导航路由 (首页) =================
 if st.session_state.page_mode is None:
-    st.title("🗳️ 班委换届竞选系统")
+    st.title("🗳️ 班委竞选系统")
     st.markdown("<br><br>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
@@ -84,7 +84,6 @@ elif st.session_state.page_mode == "student":
         name = data["allowed_users"][sid].get("name", "同学")
         st.success(f"欢迎，{name}！")
         
-        # ==== 修复点：将学生自行修改密码的面板加回来 ====
         with st.expander("🔐 账号安全：修改我的密码"):
             new_pwd = st.text_input("请输入新密码：", type="password", key="user_new_pwd")
             confirm_pwd = st.text_input("请再次确认新密码：", type="password", key="user_confirm_pwd")
@@ -100,7 +99,6 @@ elif st.session_state.page_mode == "student":
         
         all_roles = list(data["roles"].keys())
         
-        # 撤销与修改逻辑 (兼容弃权票撤回)
         st.markdown("### 📝 我的选票")
         for role in all_roles:
             if role in data["user_progress"].get(sid, []):
@@ -121,8 +119,9 @@ elif st.session_state.page_mode == "student":
             st.balloons()
             st.success("所有环节已投票完毕！")
         else:
-            current_role = unvoted_roles[0]
-            st.subheader(f"竞选环节：【{current_role}】")
+            # ==== 【核心修复点：打破强制顺序，改为下拉自由选择】 ====
+            current_role = st.selectbox("📌 请选择你想投票的职务：", unvoted_roles)
+            st.subheader(f"当前竞选环节：【{current_role}】")
             candidates = list(data["roles"][current_role].keys())
             if candidates:
                 with st.form(f"vote_{current_role}"):
@@ -135,6 +134,8 @@ elif st.session_state.page_mode == "student":
                         data["user_choices"][sid][current_role] = chosen
                         save_data(data)
                         st.rerun()
+            else:
+                st.warning("该职务暂无候选人。")
 
 # ================= 模式 2：导生管理端 =================
 elif st.session_state.page_mode == "guide":
@@ -156,7 +157,6 @@ elif st.session_state.page_mode == "guide":
         )
         st.markdown("---")
         
-        # --- 现场展示大屏 (Altair 高级图表 + 弃权动态统计) ---
         if admin_mode == "📺 大屏实时监控 (开启1秒刷新)":
             st_autorefresh(interval=1000, key="datarefresh")
             
@@ -203,7 +203,6 @@ elif st.session_state.page_mode == "guide":
                 else:
                     st.write("暂无候选人")
                     
-        # --- 完整恢复的配置后台 ---
         elif admin_mode == "⚙️ 后台完整配置 (停止刷新，安全操作)":
             sub_t1, sub_t2, sub_t3, sub_t4 = st.tabs(["📝 职位与人员", "📂 名单管理", "💾 备份导出", "🔒 密码修改"])
             
