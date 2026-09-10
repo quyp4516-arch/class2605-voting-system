@@ -2,7 +2,7 @@ import streamlit as st
 import json
 import os
 import pandas as pd
-import altair as alt  # 新增：引入高级图表库
+import altair as alt
 from streamlit_autorefresh import st_autorefresh
 
 DATA_FILE = 'voting_data.json'
@@ -86,6 +86,7 @@ elif st.session_state.page_mode == "student":
         
         all_roles = list(data["roles"].keys())
         
+        # 撤销与修改逻辑 (兼容弃权票撤回)
         st.markdown("### 📝 我的选票")
         for role in all_roles:
             if role in data["user_progress"].get(sid, []):
@@ -93,7 +94,7 @@ elif st.session_state.page_mode == "student":
                 col_role, col_mod = st.columns([3, 1])
                 col_role.info(f"**{role}**：已投给 {chosen_cand}")
                 if col_mod.button("修改", key=f"mod_{role}"):
-                    if chosen_cand in data["roles"][role] and data["roles"][role][chosen_cand] > 0:
+                    if chosen_cand != "弃权 (不投票给任何人)" and chosen_cand in data["roles"][role] and data["roles"][role][chosen_cand] > 0:
                         data["roles"][role][chosen_cand] -= 1
                     data["user_progress"][sid].remove(role)
                     data["user_choices"][sid].pop(role, None)
@@ -111,16 +112,11 @@ elif st.session_state.page_mode == "student":
             candidates = list(data["roles"][current_role].keys())
             if candidates:
                 with st.form(f"vote_{current_role}"):
-                    # 【核心修改 1】：在选项最后自动加上“弃权”
                     options = candidates + ["弃权 (不投票给任何人)"]
                     chosen = st.radio("请选择：", options)
-                    
                     if st.form_submit_button("确认提交"):
-                        # 【核心修改 2】：如果是弃权，不增加任何候选人的票数
                         if chosen != "弃权 (不投票给任何人)":
                             data["roles"][current_role][chosen] += 1
-                        
-                        # 正常推进进度并记录用户的选择
                         data["user_progress"][sid].append(current_role)
                         data["user_choices"][sid][current_role] = chosen
                         save_data(data)
@@ -146,26 +142,27 @@ elif st.session_state.page_mode == "guide":
         )
         st.markdown("---")
         
-        # --- 现场展示大屏 ---
-        for role, candidates in data["roles"].items():
+        # --- 现场展示大屏 (Altair 高级图表 + 弃权动态统计) ---
+        if admin_mode == "📺 大屏实时监控 (开启1秒刷新)":
+            st_autorefresh(interval=1000, key="datarefresh")
+            
+            if not data["roles"]:
+                st.info("尚未配置职位数据，请切换到【后台配置】添加。")
+            for role, candidates in data["roles"].items():
                 st.markdown(f"#### 🏆 {role}")
                 if candidates:
-                    # 1. 获取候选人名单与票数
                     cands_list = list(candidates.keys())
                     votes_list = list(candidates.values())
                     
-                    # 2. 【核心修改 3】：动态统计该职位的弃权票数
                     abstain_count = sum(
                         1 for user_choices in data.get("user_choices", {}).values() 
                         if user_choices.get(role) == "弃权 (不投票给任何人)"
                     )
                     
-                    # 如果有人弃权，就把弃权票单独加到图表最后
                     if abstain_count > 0:
                         cands_list.append("⭕ 弃权")
                         votes_list.append(abstain_count)
 
-                    # 3. 生成表格并画图
                     df = pd.DataFrame({
                         "姓名": cands_list, 
                         "票数": votes_list
@@ -176,34 +173,26 @@ elif st.session_state.page_mode == "guide":
                         y=alt.Y('票数:Q', title='', axis=alt.Axis(tickMinStep=1, labelFontSize=12), scale=alt.Scale(domainMin=0))
                     ).properties(height=250)
                     
-                    # 用颜色区分：弃权票显示为灰色，候选人显示为蓝色
                     color_condition = alt.condition(
                         alt.datum['姓名'] == '⭕ 弃权',
-                        alt.value('#B0B0B0'),  # 弃权的灰色
-                        alt.value('#4C78A8')   # 正常的蓝色
+                        alt.value('#B0B0B0'),
+                        alt.value('#4C78A8')
                     )
                     
                     bar = base.mark_bar(
                         cornerRadiusTopLeft=5, 
                         cornerRadiusTopRight=5
-                    ).encode(
-                        color=color_condition
-                    )
+                    ).encode(color=color_condition)
                     
                     text = base.mark_text(
-                        align='center',
-                        baseline='bottom',
-                        dy=-5,
-                        fontSize=18,
-                        fontWeight='bold',
-                        color='#333333'
-                    ).encode(
-                        text='票数:Q'
-                    )
+                        align='center', baseline='bottom', dy=-5,
+                        fontSize=18, fontWeight='bold', color='#333333'
+                    ).encode(text='票数:Q')
                     
                     st.altair_chart(bar + text, use_container_width=True)
                 else:
                     st.write("暂无候选人")
+                    
         # --- 完整恢复的配置后台 ---
         elif admin_mode == "⚙️ 后台完整配置 (停止刷新，安全操作)":
             sub_t1, sub_t2, sub_t3, sub_t4 = st.tabs(["📝 职位与人员", "📂 名单管理", "💾 备份导出", "🔒 密码修改"])
@@ -235,13 +224,11 @@ elif st.session_state.page_mode == "guide":
                 if data["roles"]:
                     edit_role = st.selectbox("选择需要管理的职位：", list(data["roles"].keys()), key="edit_role")
                     
-                    # 职位级别的修改与删除
                     col_r1, col_r2 = st.columns(2)
                     with col_r1:
                         rename_role = st.text_input(f"重命名【{edit_role}】为：", key="rename_role_input")
                         if st.button("确认重命名职位"):
                             if rename_role and rename_role not in data["roles"]:
-                                # 转移数据并删除旧名字，保留原有票数
                                 data["roles"][rename_role] = data["roles"].pop(edit_role)
                                 save_data(data)
                                 st.success("职位重命名成功！")
@@ -255,7 +242,6 @@ elif st.session_state.page_mode == "guide":
                             st.success("职位已删除！")
                             st.rerun()
                             
-                    # 候选人级别的修改与删除
                     candidates_list = list(data["roles"].get(edit_role, {}).keys())
                     if candidates_list:
                         st.markdown(f"**管理【{edit_role}】的候选人：**")
@@ -266,7 +252,6 @@ elif st.session_state.page_mode == "guide":
                             rename_cand = st.text_input(f"重命名【{edit_cand}】为：", key="rename_cand_input")
                             if st.button("确认重命名候选人"):
                                 if rename_cand and rename_cand not in data["roles"][edit_role]:
-                                    # 转移票数
                                     votes = data["roles"][edit_role].pop(edit_cand)
                                     data["roles"][edit_role][rename_cand] = votes
                                     save_data(data)
