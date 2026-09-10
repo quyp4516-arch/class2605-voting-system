@@ -132,14 +132,21 @@ elif st.session_state.page_mode == "guide":
             st.rerun()
     else:
         st.title("👨‍🏫 管理中心")
-        tab_display, tab_config = st.tabs(["📺 大屏实时监控", "⚙️ 后台完整配置"])
         
-        # --- 现场展示大屏 ---
-        with tab_display:
-            st_autorefresh(interval=5000, key="datarefresh")
-            st.markdown("### 📊 实时战况 (每 5 秒自动刷新)")
+        # 【核心修复】用单选按钮替代 tabs，彻底隔离刷新机制与配置机制
+        admin_mode = st.radio(
+            "请选择操作模式：", 
+            ["📺 大屏实时监控 (开启1秒刷新)", "⚙️ 后台完整配置 (停止刷新，安全操作)"], 
+            horizontal=True
+        )
+        st.markdown("---")
+        
+        # --- 现场展示大屏 (仅在此模式下激活自动刷新) ---
+        if admin_mode == "📺 大屏实时监控 (开启1秒刷新)":
+            st_autorefresh(interval=1000, key="datarefresh")
+            
             if not data["roles"]:
-                st.info("尚未配置职位数据。")
+                st.info("尚未配置职位数据，请切换到【后台配置】添加。")
             for role, candidates in data["roles"].items():
                 st.markdown(f"#### 🏆 {role}")
                 if candidates:
@@ -147,8 +154,8 @@ elif st.session_state.page_mode == "guide":
                 else:
                     st.write("暂无候选人")
                     
-        # --- 完整恢复的配置后台 ---
-        with tab_config:
+        # --- 完整恢复的配置后台 (此模式下无刷新，可正常输入) ---
+        elif admin_mode == "⚙️ 后台完整配置 (停止刷新，安全操作)":
             sub_t1, sub_t2, sub_t3, sub_t4 = st.tabs(["📝 职位与人员", "📂 名单管理", "💾 备份导出", "🔒 密码修改"])
             
             with sub_t1:
@@ -158,7 +165,7 @@ elif st.session_state.page_mode == "guide":
                     if new_role and new_role not in data["roles"]:
                         data["roles"][new_role] = {}
                         save_data(data)
-                        st.success("职位添加成功！")
+                        st.success(f"职位【{new_role}】添加成功！")
                         st.rerun()
                         
                 st.markdown("#### 2. 添加候选人")
@@ -169,7 +176,7 @@ elif st.session_state.page_mode == "guide":
                         if new_cand and new_cand not in data["roles"][target_role]:
                             data["roles"][target_role][new_cand] = 0
                             save_data(data)
-                            st.success("候选人添加成功！")
+                            st.success(f"【{new_cand}】已加入候选名单！")
                             st.rerun()
                             
             with sub_t2:
