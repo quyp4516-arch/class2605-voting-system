@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import os
 import pandas as pd
+import altair as alt  # 新增：引入高级图表库
 from streamlit_autorefresh import st_autorefresh
 
 DATA_FILE = 'voting_data.json'
@@ -147,7 +148,39 @@ elif st.session_state.page_mode == "guide":
             for role, candidates in data["roles"].items():
                 st.markdown(f"#### 🏆 {role}")
                 if candidates:
-                    st.bar_chart(candidates)
+                    # 1. 将数据转为标准的 Pandas 表格
+                    df = pd.DataFrame({
+                        "姓名": list(candidates.keys()), 
+                        "票数": list(candidates.values())
+                    })
+                    
+                    # 2. 构建基础图表框架 (锁定Y轴最小值为0，强制步长为1)
+                    base = alt.Chart(df).encode(
+                        x=alt.X('姓名:N', title='', axis=alt.Axis(labelAngle=0, labelFontSize=14)),
+                        y=alt.Y('票数:Q', title='', axis=alt.Axis(tickMinStep=1, labelFontSize=12), scale=alt.Scale(domainMin=0))
+                    ).properties(height=250)
+                    
+                    # 3. 绘制圆角柱状图
+                    bar = base.mark_bar(
+                        color='#4C78A8', 
+                        cornerRadiusTopLeft=5, 
+                        cornerRadiusTopRight=5
+                    )
+                    
+                    # 4. 在柱子上叠加粗体数值
+                    text = base.mark_text(
+                        align='center',
+                        baseline='bottom',
+                        dy=-5,  # 将数字向上偏移一点
+                        fontSize=18,
+                        fontWeight='bold',
+                        color='#333333'
+                    ).encode(
+                        text='票数:Q'
+                    )
+                    
+                    # 5. 合并渲染图表
+                    st.altair_chart(bar + text, use_container_width=True)
                 else:
                     st.write("暂无候选人")
                     
