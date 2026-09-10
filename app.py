@@ -84,8 +84,23 @@ elif st.session_state.page_mode == "student":
         name = data["allowed_users"][sid].get("name", "同学")
         st.success(f"欢迎，{name}！")
         
+        # ==== 修复点：将学生自行修改密码的面板加回来 ====
+        with st.expander("🔐 账号安全：修改我的密码"):
+            new_pwd = st.text_input("请输入新密码：", type="password", key="user_new_pwd")
+            confirm_pwd = st.text_input("请再次确认新密码：", type="password", key="user_confirm_pwd")
+            if st.button("确认修改个人密码"):
+                if new_pwd and new_pwd == confirm_pwd:
+                    data["allowed_users"][sid]["pwd"] = new_pwd
+                    save_data(data)
+                    st.success("✅ 密码修改成功！下次登录请使用新密码。")
+                elif new_pwd != confirm_pwd:
+                    st.error("❌ 两次输入的密码不一致！")
+                else:
+                    st.warning("密码不能为空！")
+        
         all_roles = list(data["roles"].keys())
         
+        # 撤销与修改逻辑 (兼容弃权票撤回)
         st.markdown("### 📝 我的选票")
         for role in all_roles:
             if role in data["user_progress"].get(sid, []):
@@ -141,7 +156,7 @@ elif st.session_state.page_mode == "guide":
         )
         st.markdown("---")
         
-        # --- 现场展示大屏 ---
+        # --- 现场展示大屏 (Altair 高级图表 + 弃权动态统计) ---
         if admin_mode == "📺 大屏实时监控 (开启1秒刷新)":
             st_autorefresh(interval=1000, key="datarefresh")
             
@@ -276,12 +291,10 @@ elif st.session_state.page_mode == "guide":
                 st.markdown("#### 📁 Excel 批量导入 (表头: 名字, 账号, 密码)")
                 uploaded_file = st.file_uploader("上传 .xlsx", type=["xlsx", "xls"])
                 
-                # ==== 【修复点】：加入了 try...except 报错处理和清理表头空格的逻辑 ====
                 if uploaded_file is not None:
                     if st.button("开始解析并导入"):
                         try:
                             df = pd.read_excel(uploaded_file)
-                            # 清理可能存在的表头隐藏空格
                             df.columns = df.columns.str.strip()
                             
                             if all(col in df.columns for col in ["名字", "账号", "密码"]):
@@ -297,7 +310,6 @@ elif st.session_state.page_mode == "guide":
                                         count += 1
                                 save_data(data)
                                 st.success(f"✅ 成功导入 {count} 条名单数据！")
-                                # 移除 st.rerun 以便你能直接看到下方的成功提示
                             else:
                                 st.error(f"❌ 导入失败：缺少必需的表头。你的表头是：{list(df.columns)}，必须精确包含『名字』、『账号』、『密码』。")
                         except Exception as e:
