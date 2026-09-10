@@ -98,7 +98,43 @@ elif st.session_state.page_mode == "student":
                     st.warning("密码不能为空！")
         
         all_roles = list(data["roles"].keys())
+
+        # ==== 全新功能：自主报名竞选与撤回模块 ====
+        with st.expander("🙋 报名竞选与撤回 (自荐参选)", expanded=True):
+            st.markdown("如果你想参与班委竞选，请在此自主报名。报名后你的名字将立刻出现在该职务的投票候选人名单中。")
+            
+            # 1. 查看已报名的职务并支持撤回
+            applied_roles = [r for r in all_roles if name in data["roles"][r]]
+            if applied_roles:
+                st.write("✅ **你目前已报名的竞选职务：**")
+                for r in applied_roles:
+                    col_app1, col_app2 = st.columns([3, 1])
+                    col_app1.info(f"正在竞选：【{r}】")
+                    if col_app2.button("撤回报名", key=f"withdraw_{r}"):
+                        # 撤回报名：从该职务的候选人字典中弹出自己的名字
+                        data["roles"][r].pop(name, None)
+                        save_data(data)
+                        st.success(f"已撤回【{r}】的竞选报名！")
+                        st.rerun()
+                st.markdown("---")
+            
+            # 2. 报名新职务
+            available_roles = [r for r in all_roles if name not in data["roles"][r]]
+            if available_roles:
+                apply_role = st.selectbox("📌 选择你想竞选的职务：", available_roles)
+                if st.button("确认提交报名申请"):
+                    # 报名成功：将其名字加入该职务，初始票数为 0
+                    data["roles"][apply_role][name] = 0
+                    save_data(data)
+                    st.success(f"🎉 报名成功！你已成为【{apply_role}】的正式候选人。")
+                    st.rerun()
+            else:
+                if not all_roles:
+                    st.warning("导生暂未开放任何竞选职务。")
+                else:
+                    st.info("太有干劲了！你已报名了当前所有的开放职务。")
         
+        # 撤销与修改逻辑 (兼容弃权票撤回)
         st.markdown("### 📝 我的选票")
         for role in all_roles:
             if role in data["user_progress"].get(sid, []):
@@ -119,8 +155,7 @@ elif st.session_state.page_mode == "student":
             st.balloons()
             st.success("所有环节已投票完毕！")
         else:
-            # ==== 【核心修复点：打破强制顺序，改为下拉自由选择】 ====
-            current_role = st.selectbox("📌 请选择你想投票的职务：", unvoted_roles)
+            current_role = st.selectbox("📌 请选择你想进行投票的职务：", unvoted_roles)
             st.subheader(f"当前竞选环节：【{current_role}】")
             candidates = list(data["roles"][current_role].keys())
             if candidates:
@@ -135,7 +170,7 @@ elif st.session_state.page_mode == "student":
                         save_data(data)
                         st.rerun()
             else:
-                st.warning("该职务暂无候选人。")
+                st.warning("该职务暂无同学报名参选，请等待候选人报名。")
 
 # ================= 模式 2：导生管理端 =================
 elif st.session_state.page_mode == "guide":
@@ -161,7 +196,7 @@ elif st.session_state.page_mode == "guide":
             st_autorefresh(interval=1000, key="datarefresh")
             
             if not data["roles"]:
-                st.info("尚未配置职位数据，请切换到【后台配置】添加。")
+                st.info("尚未配置职务数据，请切换到【后台配置】添加职务。")
             for role, candidates in data["roles"].items():
                 st.markdown(f"#### 🏆 {role}")
                 if candidates:
@@ -201,7 +236,7 @@ elif st.session_state.page_mode == "guide":
                     
                     st.altair_chart(bar + text, use_container_width=True)
                 else:
-                    st.write("暂无候选人")
+                    st.write("虚位以待，等待同学自荐报名...")
                     
         elif admin_mode == "⚙️ 后台完整配置 (停止刷新，安全操作)":
             sub_t1, sub_t2, sub_t3, sub_t4 = st.tabs(["📝 职位与人员", "📂 名单管理", "💾 备份导出", "🔒 密码修改"])
@@ -210,18 +245,18 @@ elif st.session_state.page_mode == "guide":
                 st.markdown("#### 1. 新增数据")
                 col_add1, col_add2 = st.columns(2)
                 with col_add1:
-                    new_role = st.text_input("新增职位名称", key="new_role_input")
-                    if st.button("新建职位"):
+                    new_role = st.text_input("新增职务名称", key="new_role_input")
+                    if st.button("新建职务"):
                         if new_role and new_role not in data["roles"]:
                             data["roles"][new_role] = {}
                             save_data(data)
-                            st.success(f"职位【{new_role}】添加成功！")
+                            st.success(f"职务【{new_role}】添加成功！")
                             st.rerun()
                 with col_add2:
                     if data["roles"]:
-                        target_role = st.selectbox("选择要添加候选人的职位", list(data["roles"].keys()), key="target_role_add")
-                        new_cand = st.text_input("新增候选人姓名", key="new_cand_input")
-                        if st.button("添加候选人"):
+                        target_role = st.selectbox("选择要添加候选人的职务", list(data["roles"].keys()), key="target_role_add")
+                        new_cand = st.text_input("新增候选人姓名 (可由学生自行报名)", key="new_cand_input")
+                        if st.button("手动添加候选人"):
                             if new_cand and new_cand not in data["roles"][target_role]:
                                 data["roles"][target_role][new_cand] = 0
                                 save_data(data)
@@ -231,24 +266,24 @@ elif st.session_state.page_mode == "guide":
                 st.markdown("---")
                 st.markdown("#### 2. ✏️ 修改与删除现有数据")
                 if data["roles"]:
-                    edit_role = st.selectbox("选择需要管理的职位：", list(data["roles"].keys()), key="edit_role")
+                    edit_role = st.selectbox("选择需要管理的职务：", list(data["roles"].keys()), key="edit_role")
                     
                     col_r1, col_r2 = st.columns(2)
                     with col_r1:
                         rename_role = st.text_input(f"重命名【{edit_role}】为：", key="rename_role_input")
-                        if st.button("确认重命名职位"):
+                        if st.button("确认重命名职务"):
                             if rename_role and rename_role not in data["roles"]:
                                 data["roles"][rename_role] = data["roles"].pop(edit_role)
                                 save_data(data)
-                                st.success("职位重命名成功！")
+                                st.success("职务重命名成功！")
                                 st.rerun()
                     with col_r2:
                         st.write("") 
                         st.write("")
-                        if st.button(f"🗑️ 彻底删除【{edit_role}】职位", type="primary"):
+                        if st.button(f"🗑️ 彻底删除【{edit_role}】职务", type="primary"):
                             data["roles"].pop(edit_role)
                             save_data(data)
-                            st.success("职位已删除！")
+                            st.success("职务已删除！")
                             st.rerun()
                             
                     candidates_list = list(data["roles"].get(edit_role, {}).keys())
@@ -269,10 +304,10 @@ elif st.session_state.page_mode == "guide":
                         with col_c2:
                             st.write("")
                             st.write("")
-                            if st.button(f"🗑️ 删除候选人【{edit_cand}】"):
+                            if st.button(f"🗑️ 强制退选候选人【{edit_cand}】"):
                                 data["roles"][edit_role].pop(edit_cand)
                                 save_data(data)
-                                st.success("候选人已删除！")
+                                st.success("候选人已被移除！")
                                 st.rerun()
                             
             with sub_t2:
@@ -310,9 +345,9 @@ elif st.session_state.page_mode == "guide":
                                 save_data(data)
                                 st.success(f"✅ 成功导入 {count} 条名单数据！")
                             else:
-                                st.error(f"❌ 导入失败：缺少必需的表头。你的表头是：{list(df.columns)}，必须精确包含『名字』、『账号』、『密码』。")
+                                st.error(f"❌ 导入失败：缺少必需的表头。必须精确包含『名字』、『账号』、『密码』。")
                         except Exception as e:
-                            st.error(f"⚠️ 读取文件出错：{e}。请检查 requirements.txt 中是否已包含 openpyxl。")
+                            st.error(f"⚠️ 读取文件出错：{e}")
                 
                 st.markdown("---")
                 st.markdown("#### 👀 查看与管理已录入账号")
